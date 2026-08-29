@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Greenhouse Ripeness Classifier</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <h1>🌱 Greenhouse Ripeness Classifier</h1>
+        <p class="subtitle">Upload a crop image to classify its ripeness stage.</p>
+
+        <form action="/predict-ui" method="post" enctype="multipart/form-data" class="upload-form">
+            <input type="file" name="file" accept="image/*" required>
+            <button type="submit">Classify</button>
+        </form>
+
+        {% if error %}
+        <div class="result error">
+            <strong>Error:</strong> {{ error }}
+        </div>
+        {% endif %}
+
+        {% if result %}
+        <div class="result">
+            <h2>Prediction: {{ result.predicted_class }}</h2>
+            <p>Confidence: {{ (result.confidence * 100) | round(2) }}%</p>
+            <table>
+                <thead>
+                    <tr><th>Class</th><th>Probability</th></tr>
+                </thead>
+                <tbody>
+                    {% for cls, prob in result.probabilities.items() %}
+                    <tr>
+                        <td>{{ cls }}</td>
+                        <td>{{ (prob * 100) | round(2) }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <footer>
+            <p>API docs available at <a href="/docs">/docs</a> &middot; JSON endpoint: <code>POST /predict</code></p>
+        </footer>
+    </main>
+</body>
+</html>
