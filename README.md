@@ -3,6 +3,8 @@
 An end-to-end AI application that classifies crop images by ripeness stage,
 built to support automated greenhouse harvesting.
 
+**Live demo:** https://greenhouse-ripeness-app.onrender.com
+
 ---
 
 ## 1. Problem Statement
@@ -11,8 +13,8 @@ Automated greenhouse harvesting robots need a reliable way to decide, from a
 camera image alone, whether a crop is ready to be picked. Manual inspection
 doesn't scale, and harvesting either too early or too late reduces yield and
 quality. This project addresses that by providing an AI model that classifies
-a crop image into a ripeness stage (e.g. **unripe**, **ripe**, **overripe /
-rotten**) in real time.
+a crop image as **fresh** (ripe/harvestable) or **rotten** (spoiled/past
+harvest) for a given fruit type, in real time.
 
 ## 2. Use Case
 
@@ -20,7 +22,8 @@ The application is designed to plug into a greenhouse automation pipeline:
 
 - A harvesting robot's camera captures an image of a crop.
 - The image is sent to this application's `/predict` API.
-- The API returns the predicted ripeness class and a confidence score.
+- The API returns the predicted class (e.g. `freshapples`, `rottenbanana`)
+  and a confidence score.
 - The robot (or a human operator, via the web UI) uses that result to decide
   whether to harvest.
 
@@ -30,34 +33,41 @@ spot-check produce.
 ## 3. Solution Overview
 
 A convolutional neural network (transfer learning on MobileNetV2) is trained
-to classify crop images into ripeness categories. The trained model is served
-behind a FastAPI application that exposes both a JSON API (for integration
-with a robot/automation pipeline) and a simple web UI (for manual use). The
-application is containerized with Docker and deployed to a cloud platform.
+to classify crop images into freshness/ripeness categories. The trained model
+is served behind a FastAPI application that exposes both a JSON API (for
+integration with a robot/automation pipeline) and a simple web UI (for manual
+use). The application is containerized with Docker and deployed to Render.
 
 ## 4. Dataset
 
-- **Source:** A public fruit/vegetable ripeness dataset (e.g. from
-  [Kaggle](https://www.kaggle.com/) or [Hugging Face Datasets](https://huggingface.co/datasets)
-  — search for "fruit ripeness classification" or a crop-specific dataset
-  matching your target produce).
-- **Structure expected by the training script:**
+- **Source:** [Fruits fresh and rotten for classification](https://www.kaggle.com/datasets/sriramr/fruits-fresh-and-rotten-for-classification) (Kaggle).
+- **Classes (6):** `freshapples`, `freshbanana`, `freshoranges`,
+  `rottenapples`, `rottenbanana`, `rottenoranges` — three fruit types, each
+  labeled fresh (ripe/harvestable) or rotten (spoiled).
+- **Structure used for training:**
   ```
-  data/
+  dataset/
       train/
-          ripe/
-          unripe/
-          rotten/
+          freshapples/
+          freshbanana/
+          freshoranges/
+          rottenapples/
+          rottenbanana/
+          rottenoranges/
       val/
-          ripe/
-          unripe/
-          rotten/
+          freshapples/
+          freshbanana/
+          freshoranges/
+          rottenapples/
+          rottenbanana/
+          rottenoranges/
   ```
-  Rename/organize the downloaded dataset's classes into this folder layout
-  before training (an `ImageFolder`-style layout, one subfolder per class).
-- **Note:** the exact class names are not hardcoded anywhere in the app —
-  they're read from whatever folders exist in the dataset at training time
-  and saved alongside the model checkpoint, so this works for 2 classes or 5.
+  (The dataset ships with `train`/`test` folders on Kaggle — `test` was used
+  as the `val` split here.)
+- **Note:** class names aren't hardcoded anywhere in the app — they're read
+  from whatever folders exist in the dataset at training time and saved
+  alongside the model checkpoint, so swapping in a different dataset/class
+  set requires no code changes.
 
 ## 5. AI/ML Approach
 
@@ -67,6 +77,7 @@ application is containerized with Docker and deployed to a cloud platform.
   and effective on a small/medium dataset without a GPU being strictly
   required.
 - **Framework:** PyTorch + torchvision.
+- **Training environment:** Google Colab (free T4 GPU).
 - **Training script:** [`training/train_model.py`](training/train_model.py)
   handles data loading, augmentation, training, validation, and saving the
   best checkpoint (model weights + class names).
@@ -90,34 +101,38 @@ application is containerized with Docker and deployed to a cloud platform.
                                           └────────────────────┘
 ```
 
-- `training/` — offline model training, run separately (locally or on
-  Colab), not part of the deployed container.
-- `app/` — the deployed FastAPI service (API + web UI + inference).
-- `Dockerfile` — builds the `app/` service into a container image.
+- `training/` — offline model training, run separately (on Colab), not part
+  of the deployed container.
+- `app/` — the deployed FastAPI service (API + web UI + inference), including
+  the trained checkpoint at `app/model/ripeness_model.pt`.
+- `Dockerfile` — builds the `app/` service into a container image, built and
+  run directly by Render from this GitHub repo.
 
 ## 7. Technology Stack
 
 | Layer          | Technology                          |
 |----------------|--------------------------------------|
-| Model training | PyTorch, torchvision                 |
+| Model training | PyTorch, torchvision, Google Colab (GPU) |
 | Model          | MobileNetV2 (transfer learning)      |
 | API / backend  | FastAPI, Uvicorn                     |
 | Web UI         | Jinja2 templates, plain HTML/CSS     |
 | Containerization | Docker                             |
-| Cloud hosting  | Azure App Service (Web App for Containers) + Azure Container Registry |
+| Cloud hosting  | Render.com (Web Service, Docker runtime) |
 | Source control | GitHub                               |
 
 ## 8. Local Setup Instructions
 
-### 8.1 Train the model (optional if you already have a checkpoint)
+### 8.1 Train the model (optional — a trained checkpoint is already included)
 
 ```bash
 cd training
 pip install -r requirements.txt
-python train_model.py --data_dir ./data --epochs 10 --output ../app/model/ripeness_model.pt
+python train_model.py --data_dir /path/to/dataset --epochs 10 --output ../app/model/ripeness_model.pt
 ```
 
-This produces `app/model/ripeness_model.pt` and `app/model/class_names.json`.
+`dataset/` must contain `train/` and `val/` subfolders, each with one
+subfolder per class (see Section 4). This produces
+`app/model/ripeness_model.pt` and `app/model/class_names.json`.
 
 ### 8.2 Run the API locally
 
@@ -131,63 +146,44 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 - Interactive API docs: http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 
-If `app/model/ripeness_model.pt` isn't present and you'd rather not train
-locally, set the `MODEL_URL` environment variable to a direct download link
-(e.g. a Hugging Face Hub file URL) and the app will fetch it automatically on
-startup — see `app/model_utils.py`.
+The trained checkpoint is committed at `app/model/ripeness_model.pt`, so no
+extra setup is needed to run this locally. If you ever remove it, you can set
+a `MODEL_URL` environment variable instead and the app will download it
+automatically on startup — see `app/model_utils.py`.
 
 ## 9. Deployment Details
 
-**Cloud platform:** Microsoft Azure — App Service (Web App for Containers),
-backed by Azure Container Registry. Deployed using Azure for Students credit.
+**Cloud platform:** [Render](https://render.com) — Web Service, deployed
+directly from this GitHub repository using the included `Dockerfile`.
 
-1. Create a resource group and container registry:
-   ```bash
-   az group create --name greenhouse-rg --location eastus
-   az acr create --resource-group greenhouse-rg --name <your-acr-name> --sku Basic
-   ```
-2. Build and push the Docker image to the registry:
-   ```bash
-   az acr login --name <your-acr-name>
-   docker build -t <your-acr-name>.azurecr.io/greenhouse-ripeness:latest .
-   docker push <your-acr-name>.azurecr.io/greenhouse-ripeness:latest
-   ```
-3. Create an App Service plan (Linux, B1 — the smallest tier that supports
-   custom containers) and the web app:
-   ```bash
-   az appservice plan create --name greenhouse-plan --resource-group greenhouse-rg --is-linux --sku B1
-   az webapp create --resource-group greenhouse-rg --plan greenhouse-plan \
-     --name <your-app-name> --deployment-container-image-name <your-acr-name>.azurecr.io/greenhouse-ripeness:latest
-   ```
-4. Connect the web app to the registry:
-   ```bash
-   az acr update -n <your-acr-name> --admin-enabled true
-   az acr credential show --name <your-acr-name>
-   az webapp config container set --name <your-app-name> --resource-group greenhouse-rg \
-     --docker-custom-image-name <your-acr-name>.azurecr.io/greenhouse-ripeness:latest \
-     --docker-registry-server-url https://<your-acr-name>.azurecr.io \
-     --docker-registry-server-user <username> --docker-registry-server-password <password>
-   ```
-5. Set the container port and, if the model isn't baked into the image, the
-   download URL:
-   ```bash
-   az webapp config appsettings set --resource-group greenhouse-rg --name <your-app-name> \
-     --settings WEBSITES_PORT=8000 MODEL_URL="<link to ripeness_model.pt>"
-   ```
-6. _Fill in the live URL here once deployed:_ `https://<your-app-name>.azurewebsites.net`
+1. Pushed the full project (including the trained `ripeness_model.pt`
+   checkpoint) to a public GitHub repository.
+2. On Render: **New → Web Service** → connected the GitHub repository.
+   Render auto-detected the Dockerfile.
+3. Configuration used:
+   - **Environment:** Docker
+   - **Branch:** `main`
+   - **Instance type:** Free
+   - No environment variables needed (`MODEL_URL` isn't required since the
+     model is baked into the image).
+4. Render builds the Docker image and deploys it automatically on every push
+   to `main`.
+5. **Live URL:** https://greenhouse-ripeness-app.onrender.com
 
-**Note:** delete the resource group after evaluation (`az group delete --name greenhouse-rg`)
-to stop consuming Azure credit — App Service bills hourly regardless of traffic.
+**Note:** Render's free tier spins the service down after ~15 minutes of
+inactivity. The first request after idling takes 30–60 seconds to respond
+(cold start) while the container restarts — this is expected behavior, not a
+fault.
 
 ## 10. API / Web Application Usage
 
-**Web UI:** open the deployed URL in a browser, upload a crop image, click
-**Classify**.
+**Web UI:** open https://greenhouse-ripeness-app.onrender.com in a browser,
+upload a crop image, click **Classify**.
 
 **JSON API:**
 
 ```bash
-curl -X POST "https://<your-app-url>/predict" \
+curl -X POST "https://greenhouse-ripeness-app.onrender.com/predict" \
   -F "file=@sample_crop.jpg"
 ```
 
@@ -195,12 +191,15 @@ Example response:
 
 ```json
 {
-  "predicted_class": "ripe",
+  "predicted_class": "freshapples",
   "confidence": 0.9421,
   "probabilities": {
-    "unripe": 0.031,
-    "ripe": 0.9421,
-    "rotten": 0.0269
+    "freshapples": 0.9421,
+    "freshbanana": 0.0031,
+    "freshoranges": 0.0058,
+    "rottenapples": 0.0269,
+    "rottenbanana": 0.0102,
+    "rottenoranges": 0.0119
   }
 }
 ```
@@ -208,7 +207,7 @@ Example response:
 **Health check:**
 
 ```bash
-curl https://<your-app-url>/health
+curl https://greenhouse-ripeness-app.onrender.com/health
 ```
 
 ## 11. Docker Instructions
@@ -222,13 +221,9 @@ docker build -t greenhouse-ripeness .
 Run it locally:
 
 ```bash
-docker run -p 8000:8000 \
-  -e MODEL_URL="https://<link-to-your-model-file>" \
-  greenhouse-ripeness
+docker run -p 8000:8000 greenhouse-ripeness
 ```
 
-(Omit `-e MODEL_URL=...` if you baked `app/model/ripeness_model.pt` into the
-image before building.)
 
 Visit http://localhost:8000/ once the container is running.
 
@@ -249,7 +244,8 @@ greenhouse-ripeness-app/
 │   │   └── index.html        # web UI
 │   ├── static/
 │   │   └── style.css
-│   └── model/                # trained checkpoint goes here (not in git)
+│   └── model/
+│       └── ripeness_model.pt # trained checkpoint (committed)
 ├── Dockerfile
 ├── .dockerignore
 ├── .gitignore
